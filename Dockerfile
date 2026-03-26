@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN adduser agent
+RUN mkdir -p /data/indexes && chown -R agent:agent /data
 USER agent
 WORKDIR /home/agent
 
@@ -20,6 +21,7 @@ RUN \
 ENV BM25_INDEX_PATH=/data/indexes/bm25
 ENV DEFAULT_K=5
 
-ENTRYPOINT ["uv", "run", "src/server.py"]
+COPY entrypoint.sh ./
+ENTRYPOINT ["./entrypoint.sh"]
 CMD ["--host", "0.0.0.0"]
 EXPOSE 9009
