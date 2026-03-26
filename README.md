@@ -1,90 +1,105 @@
-# A2A Agent Template
+# BrowseComp-Plus Retrieval Purple Agent
 
-A minimal template for building [A2A (Agent-to-Agent)](https://a2a-protocol.org/latest/) agents.
+BM25 retrieval agent for the BrowseComp-Plus benchmark.
+
+This service receives a plain-text search query over A2A and returns the top-k matching documents from a Lucene BM25 index.
+
+## What It Does
+
+For each incoming A2A message, the retrieval agent:
+
+1. Treats the message text as a search query
+2. Runs BM25 search with Pyserini over the local Lucene index
+3. Returns both:
+   - a text summary with ranked hits
+   - structured JSON data under `results`
+
+The default result count is `5`.
+
+## Architecture
+
+```text
+Purple research agent
+  → plain-text query → Retrieval Purple
+    → BM25 / Pyserini search over mounted index
+    → ranked documents returned to caller
+```
 
 ## Project Structure
 
-```
+```text
 src/
-├─ server.py      # Server setup and agent card configuration
+├─ server.py      # A2A server
 ├─ executor.py    # A2A request handling
-├─ agent.py       # Your agent implementation goes here
-└─ messenger.py   # A2A messaging utilities
-tests/
-└─ test_agent.py  # Agent tests
-Dockerfile            # Docker configuration
-pyproject.toml        # Python dependencies
-amber-manifest.json5  # Amber manifest
-.github/
-└─ workflows/
-   └─ test-and-publish.yml # CI workflow
+└─ agent.py       # BM25 retrieval logic
+Dockerfile
+pyproject.toml
 ```
 
-## Getting Started
+## Request And Response
 
-1. **Create your repository** - Click "Use this template" to create your own repository from this template
+Input:
 
-2. **Implement your agent** - Add your agent logic to [`src/agent.py`](src/agent.py)
+- A plain-text A2A message containing the search query
 
-3. **Configure your agent card** - Fill in your agent's metadata (name, skills, description) in [`src/server.py`](src/server.py)
+Output artifact:
 
-4. **Fill out your [Amber](https://github.com/RDI-Foundation/amber) manifest** - Update [`amber-manifest.json5`](amber-manifest.json5) to use your agent in Amber scenarios
+- `TextPart`: human-readable ranked summary
+- `DataPart`: JSON payload of the form
 
-5. **Write your tests** - Add custom tests for your agent in [`tests/test_agent.py`](tests/test_agent.py)
+```json
+{
+  "results": [
+    {
+      "docid": "123",
+      "score": 12.34,
+      "text": "document contents"
+    }
+  ]
+}
+```
 
-For a concrete example of implementing an agent using this template, see this [draft PR](https://github.com/RDI-Foundation/agent-template/pull/8).
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `BM25_INDEX_PATH` | No | Path to the Lucene BM25 index. Defaults to `/data/indexes/bm25` |
+| `DEFAULT_K` | No | Number of hits to return. Defaults to `5` |
+
+## Data Requirements
+
+This agent expects a Lucene BM25 index to exist at `BM25_INDEX_PATH`. The current Dockerfile sets the default path to `/data/indexes/bm25`, and the Amber manifest uses that same path.
+
+The retrieval service does not download the index at runtime. The index must already be present in the container filesystem or mounted into it by the surrounding deployment.
 
 ## Running Locally
 
 ```bash
-# Install dependencies
 uv sync
-
-# Run the server
-uv run src/server.py
+BM25_INDEX_PATH=/path/to/bm25 uv run src/server.py --host 0.0.0.0 --port 9009
 ```
 
-## Running with Docker
+Java is required because Pyserini depends on the Lucene/Anserini stack.
+
+## Running With Docker
 
 ```bash
-# Build the image
-docker build -t my-agent .
-
-# Run the container
-docker run -p 9009:9009 my-agent
+docker build -t browsecomp-plus-retrieval-purple .
+docker run -p 9009:9009 \
+  -e BM25_INDEX_PATH=/data/indexes/bm25 \
+  -v /path/to/indexes:/data/indexes:ro \
+  browsecomp-plus-retrieval-purple
 ```
+
+## Amber Manifest
+
+The current Amber manifest exposes one A2A endpoint and sets `BM25_INDEX_PATH` to `/data/indexes/bm25`. It does not use Amber's experimental Docker feature.
 
 ## Testing
 
-Run A2A conformance tests against your agent.
-
 ```bash
-# Install test dependencies
 uv sync --extra test
-
-# Start your agent (uv or docker; see above)
-
-# Run tests against your running agent URL
 uv run pytest --agent-url http://localhost:9009
 ```
 
-## Publishing
-
-The repository includes a GitHub Actions workflow that automatically builds, tests, and publishes a Docker image of your agent to GitHub Container Registry.
-
-If your agent needs API keys or other secrets, add them in Settings → Secrets and variables → Actions → Repository secrets. They'll be available as environment variables during CI tests.
-
-- **Push to `main`** → publishes `latest` tag:
-```
-ghcr.io/<your-username>/<your-repo-name>:latest
-```
-
-- **Create a git tag** (e.g. `git tag v1.0.0 && git push origin v1.0.0`) → publishes version tags:
-```
-ghcr.io/<your-username>/<your-repo-name>:1.0.0
-ghcr.io/<your-username>/<your-repo-name>:1
-```
-
-Once the workflow completes, find your Docker image in the Packages section (right sidebar of your repository). Configure the package visibility in package settings.
-
-> **Note:** Organization repositories may need package write permissions enabled manually (Settings → Actions → General). Version tags must follow [semantic versioning](https://semver.org/) (e.g., `v1.0.0`).
+The tests cover A2A surface behavior only. They do not verify real BM25 search results unless you provide a valid index at runtime.
